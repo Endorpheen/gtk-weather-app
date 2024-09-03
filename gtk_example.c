@@ -43,7 +43,7 @@ static void fetch_weather(GtkWidget *widget, gpointer user_data) {
 
     if(curl_handle) {
         char url[256];
-        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=f3db7af947c787c1151391d20f19ccbb&units=metric", city);
+        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=YourAPIKEY&units=metric", city);
         
         curl_easy_setopt(curl_handle, CURLOPT_URL, url);
         curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
