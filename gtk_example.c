@@ -2,6 +2,7 @@
 #include <curl/curl.h>
 #include <string.h>
 #include <json-glib/json-glib.h>
+#include <stdio.h>
 
 #define MAX_FAVORITES 10
 #define FAVORITES_FILE "favorites.txt"
@@ -17,6 +18,7 @@ typedef struct {
 } Favorites;
 
 static Favorites favorites;
+static GtkWidget *weather_label;
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
@@ -37,8 +39,8 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 }
 
 static void fetch_weather(GtkWidget *widget, gpointer user_data) {
+    printf("fetch_weather called\n");
     GtkEntry *city_entry = GTK_ENTRY(g_object_get_data(G_OBJECT(widget), "city_entry"));
-    GtkLabel *weather_label = GTK_LABEL(g_object_get_data(G_OBJECT(widget), "weather_label"));
     const gchar *city = gtk_entry_get_text(city_entry);
 
     CURL *curl_handle;
@@ -53,8 +55,10 @@ static void fetch_weather(GtkWidget *widget, gpointer user_data) {
 
     if(curl_handle) {
         char url[256];
-        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=YourAPIKEY&units=metric", city);
+        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=f3db7af947c787c1151391d20f19ccbb&units=metric", city);
         
+        printf("URL: %s\n", url);
+
         curl_easy_setopt(curl_handle, CURLOPT_URL, url);
         curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
         curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
@@ -64,22 +68,52 @@ static void fetch_weather(GtkWidget *widget, gpointer user_data) {
 
         if(res != CURLE_OK) {
             fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-            gtk_label_set_text(weather_label, "Ошибка при получении погоды");
+            if (GTK_IS_LABEL(weather_label)) {
+                gtk_label_set_text(GTK_LABEL(weather_label), "Ошибка при получении погоды");
+                while (g_main_context_pending(NULL)) {
+                    g_main_context_iteration(NULL, FALSE);
+                }
+            }
         } else {
+            printf("Data received:\n%s\n", chunk.memory);
+
             JsonParser *parser = json_parser_new();
-            if (json_parser_load_from_data(parser, chunk.memory, -1, NULL)) {
+            GError *error = NULL;
+            if (!json_parser_load_from_data(parser, chunk.memory, -1, &error)) {
+                g_warning("Error parsing JSON: %s", error->message);
+                g_error_free(error);
+                if (GTK_IS_LABEL(weather_label)) {
+                    gtk_label_set_text(GTK_LABEL(weather_label), "Ошибка при разборе JSON");
+                    while (g_main_context_pending(NULL)) {
+                        g_main_context_iteration(NULL, FALSE);
+                    }
+                }
+            } else {
                 JsonNode *root = json_parser_get_root(parser);
                 JsonObject *object = json_node_get_object(root);
-                JsonObject *main = json_object_get_object_member(object, "main");
-                double temp = json_object_get_double_member(main, "temp");
-                JsonArray *weather_array = json_object_get_array_member(object, "weather");
-                JsonObject *weather = json_array_get_object_element(weather_array, 0);
-                const char *description = json_object_get_string_member(weather, "description");
-                char weather_text[256];
-                snprintf(weather_text, sizeof(weather_text), "Погода в %s: %.1f°C, %s", city, temp, description);
-                gtk_label_set_text(weather_label, weather_text);
-            } else {
-                gtk_label_set_text(weather_label, "Ошибка при разборе JSON");
+                if (object) {
+                    JsonObject *main = json_object_get_object_member(object, "main");
+                    double temp = json_object_get_double_member(main, "temp");
+                    JsonArray *weather_array = json_object_get_array_member(object, "weather");
+                    JsonObject *weather = json_array_get_object_element(weather_array, 0);
+                    const char *description = json_object_get_string_member(weather, "description");
+                    char weather_text[256];
+                    snprintf(weather_text, sizeof(weather_text), "Погода в %s: %.1f°C, %s", city, temp, description);
+                    printf("Weather text: %s\n", weather_text);
+                    if (GTK_IS_LABEL(weather_label)) {
+                        gtk_label_set_text(GTK_LABEL(weather_label), weather_text);
+                        while (g_main_context_pending(NULL)) {
+                            g_main_context_iteration(NULL, FALSE);
+                        }
+                    }
+                } else {
+                    if (GTK_IS_LABEL(weather_label)) {
+                        gtk_label_set_text(GTK_LABEL(weather_label), "Ошибка: некорректный JSON");
+                        while (g_main_context_pending(NULL)) {
+                            g_main_context_iteration(NULL, FALSE);
+                        }
+                    }
+                }
             }
             g_object_unref(parser);
         }
@@ -189,17 +223,32 @@ static void activate(GtkApplication* app, gpointer user_data) {
 
     add_button = gtk_button_new_with_label("Добавить в избранное");
     gtk_grid_attach(GTK_GRID(grid), add_button, 0, 3, 1, 1);
+    gtk_widget_set_hexpand(add_button, TRUE);
+    gtk_widget_set_vexpand(add_button, TRUE);
+    gtk_widget_set_halign(add_button, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(add_button, GTK_ALIGN_FILL);
 
     remove_button = gtk_button_new_with_label("Удалить из избранного");
     gtk_grid_attach(GTK_GRID(grid), remove_button, 1, 3, 1, 1);
+    gtk_widget_set_hexpand(remove_button, TRUE);
+    gtk_widget_set_vexpand(remove_button, TRUE);
+    gtk_widget_set_halign(remove_button, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(remove_button, GTK_ALIGN_FILL);
 
     button = gtk_button_new_with_label("Узнать погоду");
     g_object_set_data(G_OBJECT(button), "city_entry", city_entry);
     gtk_grid_attach(GTK_GRID(grid), button, 0, 4, 2, 1);
+    gtk_widget_set_hexpand(button, TRUE);
+    gtk_widget_set_vexpand(button, TRUE);
+    gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(button, GTK_ALIGN_FILL);
 
-    label = gtk_label_new("Здесь появится информация о погоде");
-    gtk_grid_attach(GTK_GRID(grid), label, 0, 5, 2, 1);
-    g_object_set_data(G_OBJECT(button), "weather_label", label);
+    weather_label = gtk_label_new("Здесь появится информация о погоде");
+    gtk_grid_attach(GTK_GRID(grid), weather_label, 0, 5, 2, 1);
+    gtk_widget_set_hexpand(weather_label, TRUE);
+    gtk_widget_set_vexpand(weather_label, TRUE);
+    gtk_widget_set_halign(weather_label, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(weather_label, GTK_ALIGN_FILL);
 
     g_signal_connect(button, "clicked", G_CALLBACK(fetch_weather), NULL);
     g_signal_connect(add_button, "clicked", G_CALLBACK(add_favorite), city_entry);
