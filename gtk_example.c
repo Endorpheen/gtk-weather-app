@@ -3,10 +3,20 @@
 #include <string.h>
 #include <json-glib/json-glib.h>
 
+#define MAX_FAVORITES 10
+#define FAVORITES_FILE "favorites.txt"
+
 struct MemoryStruct {
     char *memory;
     size_t size;
 };
+
+typedef struct {
+    char cities[MAX_FAVORITES][256];
+    int count;
+} Favorites;
+
+static Favorites favorites;
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
@@ -81,13 +91,73 @@ static void fetch_weather(GtkWidget *widget, gpointer user_data) {
     curl_global_cleanup();
 }
 
-static void show_about_dialog(GtkWidget *widget, gpointer data) {
-    GtkWidget *dialog = gtk_about_dialog_new();
-    gtk_about_dialog_set_program_name(GTK_ABOUT_DIALOG(dialog), "Погодное приложение");
-    gtk_about_dialog_set_version(GTK_ABOUT_DIALOG(dialog), "1.1");
-    gtk_about_dialog_set_comments(GTK_ABOUT_DIALOG(dialog), "GTK приложение для просмотра погоды");
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+static void save_favorites() {
+    FILE *file = fopen(FAVORITES_FILE, "w");
+    if (file) {
+        for (int i = 0; i < favorites.count; i++) {
+            fprintf(file, "%s\n", favorites.cities[i]);
+        }
+        fclose(file);
+    }
+}
+
+static void load_favorites() {
+    FILE *file = fopen(FAVORITES_FILE, "r");
+    if (file) {
+        favorites.count = 0;
+        while (fgets(favorites.cities[favorites.count], sizeof(favorites.cities[0]), file) && favorites.count < MAX_FAVORITES) {
+            favorites.cities[favorites.count][strcspn(favorites.cities[favorites.count], "\n")] = 0;
+            favorites.count++;
+        }
+        fclose(file);
+    }
+}
+
+static void add_favorite(GtkWidget *widget, gpointer user_data) {
+    GtkEntry *city_entry = GTK_ENTRY(user_data);
+    const gchar *city = gtk_entry_get_text(city_entry);
+    
+    if (favorites.count < MAX_FAVORITES && strlen(city) > 0) {
+        strncpy(favorites.cities[favorites.count], city, sizeof(favorites.cities[0]) - 1);
+        favorites.count++;
+        save_favorites();
+        
+        GtkComboBoxText *combo = GTK_COMBO_BOX_TEXT(g_object_get_data(G_OBJECT(widget), "favorites_combo"));
+        gtk_combo_box_text_append_text(combo, city);
+    }
+}
+
+static void remove_favorite(GtkWidget *widget, gpointer user_data) {
+    GtkComboBoxText *combo = GTK_COMBO_BOX_TEXT(user_data);
+    gchar *selected_city = gtk_combo_box_text_get_active_text(combo);
+    
+    if (selected_city) {
+        for (int i = 0; i < favorites.count; i++) {
+            if (strcmp(favorites.cities[i], selected_city) == 0) {
+                for (int j = i; j < favorites.count - 1; j++) {
+                    strcpy(favorites.cities[j], favorites.cities[j+1]);
+                }
+                favorites.count--;
+                save_favorites();
+                
+                gtk_combo_box_text_remove_all(combo);
+                for (int k = 0; k < favorites.count; k++) {
+                    gtk_combo_box_text_append_text(combo, favorites.cities[k]);
+                }
+                break;
+            }
+        }
+        g_free(selected_city);
+    }
+}
+
+static void on_favorite_selected(GtkComboBox *widget, gpointer user_data) {
+    gchar *selected_city = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widget));
+    if (selected_city) {
+        GtkEntry *city_entry = GTK_ENTRY(user_data);
+        gtk_entry_set_text(city_entry, selected_city);
+        g_free(selected_city);
+    }
 }
 
 static void activate(GtkApplication* app, gpointer user_data) {
@@ -96,72 +166,51 @@ static void activate(GtkApplication* app, gpointer user_data) {
     GtkWidget *button;
     GtkWidget *label;
     GtkWidget *city_entry;
-    GtkWidget *menubar;
-    GtkWidget *fileitem;
-    GtkWidget *filemenu;
-    GtkWidget *quititem;
-    GtkWidget *helpitem;
-    GtkWidget *helpmenu;
-    GtkWidget *aboutitem;
+    GtkWidget *favorites_combo;
+    GtkWidget *add_button;
+    GtkWidget *remove_button;
 
     window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), "Погодное приложение");
     gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
 
-    // Обновленный CSS с более сложными стилями
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(provider,
-        "window { background: linear-gradient(to bottom, #2C3E50, #3498DB); }"
-        "button { background-color: #E74C3C; color: white; font-weight: bold; padding: 10px; margin: 5px; border-radius: 5px; transition: all 0.3s; }"
-        "button:hover { background-color: #C0392B; transform: scale(1.05); }"
-        "label { color: #ECF0F1; font-size: 16px; margin: 10px; text-shadow: 1px 1px 2px #2C3E50; }"
-        "entry { background-color: #ECF0F1; color: #2C3E50; padding: 5px; margin: 5px; border-radius: 3px; }"
-        "menubar { background-color: rgba(52, 73, 94, 0.8); }"
-        "menuitem { color: #ECF0F1; padding: 5px 10px; }"
-        "menuitem:hover { background-color: #2980B9; }",
-        -1, NULL);
-    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
-                                              GTK_STYLE_PROVIDER(provider),
-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-
     grid = gtk_grid_new();
     gtk_container_add(GTK_CONTAINER(window), grid);
 
-    menubar = gtk_menu_bar_new();
-    fileitem = gtk_menu_item_new_with_label("Файл");
-    filemenu = gtk_menu_new();
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(fileitem), filemenu);
-    quititem = gtk_menu_item_new_with_label("Выход");
-    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), quititem);
-    g_signal_connect(quititem, "activate", G_CALLBACK(gtk_main_quit), NULL);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), fileitem);
-
-    helpitem = gtk_menu_item_new_with_label("Помощь");
-    helpmenu = gtk_menu_new();
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(helpitem), helpmenu);
-    aboutitem = gtk_menu_item_new_with_label("О программе");
-    gtk_menu_shell_append(GTK_MENU_SHELL(helpmenu), aboutitem);
-    g_signal_connect(aboutitem, "activate", G_CALLBACK(show_about_dialog), NULL);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), helpitem);
-
-    gtk_grid_attach(GTK_GRID(grid), menubar, 0, 0, 2, 1);
-
     label = gtk_label_new("Введите название города:");
-    gtk_grid_attach(GTK_GRID(grid), label, 0, 1, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), label, 0, 0, 2, 1);
 
     city_entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(city_entry), "Например: Москва");
-    gtk_grid_attach(GTK_GRID(grid), city_entry, 0, 2, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), city_entry, 0, 1, 2, 1);
+
+    favorites_combo = gtk_combo_box_text_new();
+    gtk_grid_attach(GTK_GRID(grid), favorites_combo, 0, 2, 2, 1);
+
+    add_button = gtk_button_new_with_label("Добавить в избранное");
+    gtk_grid_attach(GTK_GRID(grid), add_button, 0, 3, 1, 1);
+
+    remove_button = gtk_button_new_with_label("Удалить из избранного");
+    gtk_grid_attach(GTK_GRID(grid), remove_button, 1, 3, 1, 1);
 
     button = gtk_button_new_with_label("Узнать погоду");
     g_object_set_data(G_OBJECT(button), "city_entry", city_entry);
-    gtk_grid_attach(GTK_GRID(grid), button, 0, 3, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), button, 0, 4, 2, 1);
 
     label = gtk_label_new("Здесь появится информация о погоде");
-    gtk_grid_attach(GTK_GRID(grid), label, 0, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), label, 0, 5, 2, 1);
     g_object_set_data(G_OBJECT(button), "weather_label", label);
 
     g_signal_connect(button, "clicked", G_CALLBACK(fetch_weather), NULL);
+    g_signal_connect(add_button, "clicked", G_CALLBACK(add_favorite), city_entry);
+    g_object_set_data(G_OBJECT(add_button), "favorites_combo", favorites_combo);
+    g_signal_connect(remove_button, "clicked", G_CALLBACK(remove_favorite), favorites_combo);
+    g_signal_connect(favorites_combo, "changed", G_CALLBACK(on_favorite_selected), city_entry);
+
+    load_favorites();
+    for (int i = 0; i < favorites.count; i++) {
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(favorites_combo), favorites.cities[i]);
+    }
 
     gtk_widget_show_all(window);
 }
