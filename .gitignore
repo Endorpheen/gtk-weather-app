@@ -1,3 +1,53 @@
 gtk_example
 .vscode/*
 !.vscode/c_cpp_properties.json
+
+# Ignore build and release directories
+**/build/
+**/release/
+
+# Kotlin specific
+kotlin-version/.gradle/
+kotlin-version/local.properties
+kotlin-version/*.iml
+kotlin-version/.idea/
+
+# Qt specific
+qt-version/*.user
+qt-version/*.autosave
+
+# C/C++ object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# IDE specific (add more if you use other IDEs)
+.vscode/
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
