@@ -55,7 +55,7 @@ static void fetch_weather(GtkWidget *widget, gpointer user_data) {
 
     if(curl_handle) {
         char url[256];
-        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=f3db7af947c787c1151391d20f19ccbb&units=metric", city);
+        snprintf(url, sizeof(url), "http://api.openweathermap.org/data/2.5/weather?q=%s&appid=Your_API_KEY&units=metric", city);
         
         printf("URL: %s\n", url);
 
